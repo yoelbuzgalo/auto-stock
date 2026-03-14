@@ -1,0 +1,3 @@
+# Ignore venv since it contains dependencies that will be automatically created with requirements.txt
+
+/venv
