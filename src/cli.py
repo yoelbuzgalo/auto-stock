@@ -1,18 +1,18 @@
+from src.services.persistence import Persistence
+
 def print_menu():
     """Prints the main menu."""
     menu = """
-    ### AUTO STOCK ###
-    1. Add desired order
-    2. View desired orders
-    3. Remove order
-    4. Exit
-    """
+### AUTO STOCK ###
+1. Add desired order
+2. View desired orders
+3. Remove order
+4. Exit
+"""
     print(menu)
 
 
-def run_cli_app():
-    orders = []  # Stores tuples of (symbol, amount)
-
+def run_cli_app(persistence: Persistence) -> None:
     while True:
         print_menu()
         choice = input("Enter your choice: ").strip()
@@ -25,10 +25,11 @@ def run_cli_app():
                     break
                 except ValueError:
                     print("Please enter a valid number for amount.")
-            orders.append((symbol, amount))
+            persistence.add_item((symbol, amount))
             print(f"Order added: {symbol} @ ${amount}")
 
         elif choice == "2":
+            orders = persistence.load_items()
             if not orders:
                 print("No orders in queue.")
             else:
@@ -37,6 +38,7 @@ def run_cli_app():
                     print(f"{idx}. {symbol} @ ${amount}")
 
         elif choice == "3":
+            orders = persistence.load_items()
             if not orders:
                 print("No orders to remove.")
                 continue
@@ -47,7 +49,8 @@ def run_cli_app():
                 try:
                     to_remove = int(input("Enter order number to remove: ").strip())
                     if 1 <= to_remove <= len(orders):
-                        removed = orders.pop(to_remove - 1)
+                        persistence.remove_item(to_remove - 1)  # remove via Persistence
+                        removed = orders[to_remove - 1]
                         print(f"Removed order: {removed[0]} @ ${removed[1]}")
                         break
                     else:
