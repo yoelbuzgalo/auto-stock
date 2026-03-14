@@ -1,5 +1,5 @@
 from cli import run_cli_app
-from services.persistence import JsonFilePersistence
+from modules import JsonFilePersistence
 
 def main():
     storage = JsonFilePersistence("orders.json")  # will persist to orders.json
