@@ -1,4 +1,4 @@
-from src.services.persistence import Persistence
+from services.persistence import Persistence
 
 def print_menu():
     """Prints the main menu."""
