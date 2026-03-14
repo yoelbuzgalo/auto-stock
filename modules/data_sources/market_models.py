@@ -3,23 +3,21 @@ from datetime import datetime
 
 
 @dataclass(slots=True)
-class Quote:
+class SharedData:
     symbol: str
+    volume: int
+    source: str
+    timestamp: datetime
+
+@dataclass(slots=True)
+class Quote(SharedData):
     bid: float
     ask: float
     last: float
-    volume: int
-    timestamp: datetime
-    source: str
-
 
 @dataclass(slots=True)
-class Candle:
-    symbol: str
-    timestamp: datetime
+class Candle(SharedData):
     open: float
     high: float
     low: float
     close: float
-    volume: int
-    source: str
