@@ -1,0 +1,33 @@
+[build-system]
+requires = ["setuptools>=69"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "auto-stock"
+version = "0.1.0"
+description = "A lightweight, extensible stock desktop application with CLI, persistence, and provider abstractions."
+readme = "README.md"
+requires-python = ">=3.11"
+authors = [{ name = "Yoel Buzgalo" }]
+keywords = ["stocks", "trading", "desktop", "market-data", "tkinter"]
+dependencies = []
+
+[project.optional-dependencies]
+build = ["pyinstaller>=6.0"]
+
+[project.urls]
+Homepage = "https://github.com/yoelbuzgalo/auto-stock"
+Repository = "https://github.com/yoelbuzgalo/auto-stock"
+
+[project.scripts]
+auto-stock = "auto_stock.app:main"
+
+[project.gui-scripts]
+auto-stock-gui = "auto_stock.app:launch_gui_entrypoint"
+
+[tool.setuptools]
+include-package-data = false
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["auto_stock*", "modules*"]

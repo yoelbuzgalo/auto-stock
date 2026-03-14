@@ -1,34 +1,3 @@
-from __future__ import annotations
+from auto_stock.providers.polygon import PolygonDataSource
 
-from datetime import datetime
-from typing import List, Any
-
-from data_sources.base_provider import MarketDataProvider
-from data_sources.market_models import Quote, Candle
-
-
-class PolygonDataSource(MarketDataProvider):
-    def __init__(self, api_key: str, base_url: str) -> None:
-        self.api_key = api_key
-        self.base_url = base_url
-
-    def get_quote(self, symbol: str) -> Quote:
-        raise NotImplementedError("Implement Polygon quote request.")
-
-    def get_candles(
-        self,
-        symbol: str,
-        timeframe: str,
-        start: datetime,
-        end: datetime,
-    ) -> List[Candle]:
-        raise NotImplementedError("Implement Polygon candles request.")
-
-    def is_available(self) -> bool:
-        return True
-
-    def normalize_quote(self, raw: Any) -> Quote:
-        raise NotImplementedError("Implement Polygon quote normalization.")
-
-    def normalize_candles(self, raw: Any) -> List[Candle]:
-        raise NotImplementedError("Implement Polygon candle normalization.")
+__all__ = ["PolygonDataSource"]

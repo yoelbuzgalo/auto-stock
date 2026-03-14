@@ -1,3 +1,14 @@
+### Auto Stock ###
+# Local application state, logs, and test scratch space
+/.auto_stock/
+/.tmp_test/
+/.tmp_bootstrap/
+*_errors*.txt
+
+# Editor noise
+/.idea/
+/.vscode/
+
 ### Python ###
 # Byte-compiled / optimized / DLL files
 __pycache__/
