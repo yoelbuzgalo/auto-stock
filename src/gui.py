@@ -16,10 +16,16 @@ class FinancialDashboard(ctk.CTkFrame):
         if storage is not None:
             self.persistent_storage = storage
 
+        # State management parameters
+        self.active_news_nodes = dict()
+        self.active_canvas_widget = None
+        self.current_fig = None
+        self._resize_timer = None  # Crucial for debouncing resize lag
+
         self._configure_grid_layout()
         self._init_dashboard_panels()
-        
-        # Asynchronously fetch default ticker to prevent startup lag
+
+        # Initial asynchronous application population
         self._trigger_chart_update("AAPL")
 
     def _configure_grid_layout(self):
@@ -39,33 +45,52 @@ class FinancialDashboard(ctk.CTkFrame):
     def _build_chart_panel(self):
         self.chart_frame = ctk.CTkFrame(self)
         self.chart_frame.grid(row=0, column=0, padx=10, pady=10, sticky="nsew")
+        
+        self.chart_frame.grid_columnconfigure(0, weight=1)
+        self.chart_frame.grid_rowconfigure(2, weight=1)
 
         # Engine Control Sub-panel
         search_container = ctk.CTkFrame(self.chart_frame, fg_color="transparent")
-        search_container.pack(fill="x", padx=15, pady=(15, 5))
+        search_container.grid(row=0, column=0, padx=15, pady=(15, 5), sticky="ew")
 
         self.chart_search_input = ctk.CTkEntry(
             search_container, placeholder_text="Search Ticker (e.g., NVDA, TSLA)"
         )
         self.chart_search_input.pack(side="left", fill="x", expand=True, padx=(0, 10))
-        self.chart_search_input.bind("<Return>", lambda event: self._on_search_submit())
+        self.chart_search_input.bind("<Return>", lambda e: self._on_search_submit())
 
-        search_btn = ctk.CTkButton(
-            search_container, text="Search", width=80, command=self._on_search_submit
-        )
+        search_btn = ctk.CTkButton(search_container, text="Search", width=80, command=self._on_search_submit)
         search_btn.pack(side="right")
 
         # Status Messenger Line
         self.status_lbl = ctk.CTkLabel(
             self.chart_frame, text="System Ready", font=("Helvetica", 11, "italic"), text_color="#aaaaaa"
         )
-        self.status_lbl.pack(anchor="w", padx=18)
+        self.status_lbl.grid(row=1, column=0, padx=18, sticky="w")
 
         # Dynamic Content Viewport Area
         self.view_canvas_container = ctk.CTkFrame(self.chart_frame, fg_color="transparent")
-        self.view_canvas_container.pack(fill="both", expand=True, padx=10, pady=10)
+        self.view_canvas_container.grid(row=2, column=0, padx=10, pady=10, sticky="nsew")
+        self.view_canvas_container.grid_rowconfigure(0, weight=1)
+        self.view_canvas_container.grid_columnconfigure(0, weight=1)
         
-        self.active_canvas_widget = None
+        # Debounced Event Binding - Smooths resizing down completely
+        self.view_canvas_container.bind("<Configure>", self._debounce_canvas_resize)
+
+    def _debounce_canvas_resize(self, event):
+        """Cancels past sizing queues to ensure drawing executes only when drag stops."""
+        if self._resize_timer is not None:
+            self.master.after_cancel(self._resize_timer)
+        
+        # Wait 150ms before committing to redrawing core components
+        self._resize_timer = self.master.after(150, lambda: self._execute_deferred_resize(event.width, event.height))
+
+    def _execute_deferred_resize(self, w, h):
+        """Runs single layout calculations cleanly without lagging out layout managers."""
+        if self.current_fig and self.active_canvas_widget and w > 10 and h > 10:
+            dpi = self.current_fig.get_dpi()
+            self.current_fig.set_size_inches(w / dpi, h / dpi)
+            self.active_canvas_widget.draw_idle()
 
     def _on_search_submit(self):
         ticker = self.chart_search_input.get().strip().upper()
@@ -78,90 +103,102 @@ class FinancialDashboard(ctk.CTkFrame):
         self.status_lbl.configure(text=text, text_color=color)
 
     def _update_fear_meter(self, value):
-        self.meter_bar.set(value)
+        self.meter_bar.set(round(value, 2) / 100)
+        self.meter_label.configure(text=value)
 
     def _trigger_chart_update(self, ticker):
         self._update_status_msg(f"Fetching {ticker} market matrix asynchronously...", "#3b8ed0")
-        
-        # Multithreading worker isolates external network delays
-        worker = threading.Thread(target=self._fetch_and_render_worker, args=(ticker,), daemon=True)
-        worker.start()
+        threading.Thread(target=self._fetch_and_render_worker, args=(ticker,), daemon=True).start()
 
     def _fetch_and_render_worker(self, ticker):
         try:
             stock_data = yf.download(ticker, period="1mo", interval="1d", progress=False)
             vi = yf.Ticker("^VIX").history(period="1d")["Close"].iloc[-1]
             vi = round(vi, 2)
+            ticker_obj = yf.Ticker(ticker)
+            articles = ticker_obj.news[:5]
             
             if stock_data.empty or len(stock_data) < 2:
                 raise ValueError("Invalid symbol matrices returned")
 
-            # Safely push visual updates back onto the main loop thread execution framework
-            self.master.after(0, lambda: self._draw_matplotlib_canvas(ticker, stock_data))
-            self.master.after(0, lambda: self._update_fear_meter(vi))
+            # Consolidated singular execution block pushed to main event loop
+            self.master.after(0, lambda: self._apply_downloaded_payload(ticker, stock_data, vi, articles))
         except Exception as e:
             self.master.after(0, lambda: self._update_status_msg(f"Error lookup failed: {str(e)}", "#ff4d4d"))
 
+    def _apply_downloaded_payload(self, ticker, stock_data, vix_val, articles):
+        """Unified UI updates executed purely inside the safe main process thread."""
+        self._draw_matplotlib_canvas(ticker, stock_data)
+        self._update_fear_meter(vix_val)
+        self.clear_all_news()
+        for news in articles:
+            self._add_news_node(news)
+
     def _draw_matplotlib_canvas(self, ticker, data):
-        # Clean down any residual historical rendering canvas contexts
         if self.active_canvas_widget:
-            self.active_canvas_widget.destroy()
+            self.active_canvas_widget.get_tk_widget().destroy()
 
         self._update_status_msg(f"Displaying {ticker} performance data cleanly.", "#107c41")
 
-        fig, ax = plt.subplots(figsize=(5, 3), facecolor="#2b2b2b")
+        # 1. Expand the baseline figure layout proportion slightly
+        fig, ax = plt.subplots(figsize=(6, 3.5), facecolor="#2b2b2b")
         ax.set_facecolor("#2b2b2b")
         
-        # Draw clean Close price vector lines
+        # Draw Close price lines
         ax.plot(data.index, data['Close'], color="#1f538d", linewidth=2)
         
+        import matplotlib.dates as mdates
+        
+        # Rotate date labels automatically so they don't crash into each other
+        fig.autofmt_xdate(bottom=0.2, rotation=30, ha='right')
+        
+        # Only show a tick mark every 5 days instead of all 30 days
+        ax.xaxis.set_major_locator(mdates.DayLocator(interval=5))
+        # Format dates as 'Year-Month-Day'
+        ax.xaxis.set_major_formatter(mdates.DateFormatter('%Y-%m-%d'))
+
+        # 3. Styling adjustments
         ax.set_title(f"{ticker} - Last 30 Days", color="white", fontsize=12, fontweight="bold")
-        ax.tick_params(colors="white", labelsize=8)
+        ax.tick_params(colors="white", labelsize=9)
         ax.grid(True, color="#444444", linestyle="--", linewidth=0.5)
+        
+        # Using tight_layout safely keeps labels inside the image borders
         fig.tight_layout()
 
+        # Mount everything to your Tkinter grid viewport
+        self.current_fig = fig
         canvas = FigureCanvasTkAgg(fig, master=self.view_canvas_container)
-        self.active_canvas_widget = canvas.get_tk_widget()
-        self.active_canvas_widget.pack(fill="both", expand=True)
-        canvas.draw()
+        self.active_canvas_widget = canvas
         
-        # Cleanup memory structures behind closed figures explicitly
+        canvas.get_tk_widget().grid(row=0, column=0, sticky="nsew")
+        canvas.draw()
         plt.close(fig)
 
     def _build_fear_panel(self):
         self.fear_frame = ctk.CTkFrame(self)
         self.fear_frame.grid(row=0, column=1, padx=10, pady=10, sticky="nsew")
 
-        fear_title = ctk.CTkLabel(
-            self.fear_frame, text="Fear & Greed Index", font=("Helvetica", 16, "bold")
-        )
+        fear_title = ctk.CTkLabel(self.fear_frame, text="Fear & Greed Index", font=("Helvetica", 16, "bold"))
         fear_title.pack(pady=(15, 5))
-
-        vi = yf.Ticker("^VIX").history(period="1d")["Close"].iloc[-1]
-        vi = round(vi, 2)
 
         self.meter_bar = ctk.CTkProgressBar(self.fear_frame, orientation="horizontal", height=25)
         self.meter_bar.set(0.32)
         self.meter_bar.pack(fill="x", padx=30, pady=20)
 
-        self.meter_label = ctk.CTkLabel(
-            self.fear_frame, text=vi, font=("Helvetica", 24, "bold"), text_color="#ff4d4d"
-        )
+        self.meter_label = ctk.CTkLabel(self.fear_frame, text="0.0", font=("Helvetica", 24, "bold"), text_color="#ff4d4d")
         self.meter_label.pack()
 
     def _build_heatmap_panel(self):
         self.heatmap_frame = ctk.CTkFrame(self)
         self.heatmap_frame.grid(row=1, column=0, padx=10, pady=10, sticky="nsew")
 
-        heatmap_title = ctk.CTkLabel(
-            self.heatmap_frame, text="Sector Performance", font=("Helvetica", 14, "bold")
-        )
+        heatmap_title = ctk.CTkLabel(self.heatmap_frame, text="Sector Performance", font=("Helvetica", 14, "bold"))
         heatmap_title.pack(anchor="w", padx=15, pady=(10, 5))
 
-        self.matrix_container = ctk.CTkFrame(self.heatmap_frame, fg_color="transparent")
-        self.matrix_container.pack(fill="both", expand=True, padx=15, pady=10)
-        self.matrix_container.grid_columnconfigure((0, 1, 2), weight=1, uniform="sub")
-        self.matrix_container.grid_rowconfigure((0, 1), weight=1, uniform="sub")
+        matrix_container = ctk.CTkFrame(self.heatmap_frame, fg_color="transparent")
+        matrix_container.pack(fill="both", expand=True, padx=15, pady=10)
+        matrix_container.grid_columnconfigure((0, 1, 2), weight=1, uniform="sub")
+        matrix_container.grid_rowconfigure((0, 1), weight=1, uniform="sub")
 
         sectors = [
             ("TECH\n+2.4%", "#107c41", 0, 0), ("FIN\n-0.8%", "#a80000", 0, 1), ("HLTH\n+0.1%", "#1b5e20", 0, 2),
@@ -169,7 +206,7 @@ class FinancialDashboard(ctk.CTkFrame):
         ]
         for text, color, r, c in sectors:
             tile = ctk.CTkButton(
-                self.matrix_container, text=text, fg_color=color, hover_color=color,
+                matrix_container, text=text, fg_color=color, hover_color=color,
                 font=("Helvetica", 12, "bold"), corner_radius=6
             )
             tile.grid(row=r, column=c, padx=4, pady=4, sticky="nsew")
@@ -178,21 +215,11 @@ class FinancialDashboard(ctk.CTkFrame):
         self.sentiment_frame = ctk.CTkFrame(self)
         self.sentiment_frame.grid(row=1, column=1, padx=10, pady=10, sticky="nsew")
 
-        sent_title = ctk.CTkLabel(
-            self.sentiment_frame, text="Market Sentiment News", font=("Helvetica", 14, "bold")
-        )
+        sent_title = ctk.CTkLabel(self.sentiment_frame, text="Market Sentiment News", font=("Helvetica", 14, "bold"))
         sent_title.pack(anchor="w", padx=15, pady=(10, 5))
 
         self.news_scroll = ctk.CTkScrollableFrame(self.sentiment_frame, fg_color="transparent")
         self.news_scroll.pack(fill="both", expand=True, padx=10, pady=5)
-
-        articles = [
-            ("Bullish", "Fed hints at cutting baseline rates early next quarter", "https://news.google.com"),
-            ("Bearish", "Tech margins squeeze as hardware costs reach macro high", "https://news.google.com"),
-            ("Neutral", "Retail volume plateaus following seasonal push", "https://news.google.com")
-        ]
-        for sentiment, headline, url in articles:
-            self._add_news_node(sentiment, headline, url)
 
     def _build_order_panel(self):
         order_frame = ctk.CTkFrame(self)
@@ -214,17 +241,12 @@ class FinancialDashboard(ctk.CTkFrame):
         self.price_input = ctk.CTkEntry(order_frame, placeholder_text="Price ($)")
         self.price_input.pack(fill="x", padx=15, pady=5)
 
-        submit_order_btn = ctk.CTkButton(
-            order_frame, text="Log Order", font=("Helvetica", 12, "bold"),
-            fg_color="#1f538d", command=self._log_transaction
-        )
-        submit_order_btn.pack(fill="x", padx=15, pady=15)
-
-        save_order_btn = ctk.CTkButton(
-            order_frame, text="Save Orders", font=("Helvetica", 12, "bold"),
-            fg_color="#1f538d", command=self._log_transaction
-        )
-        save_order_btn.pack(fill="x", padx=15, pady=15)
+        for txt in ["Log Order", "Save Orders"]:
+            btn = ctk.CTkButton(
+                order_frame, text=txt, font=("Helvetica", 12, "bold"),
+                fg_color="#1f538d", command=self._log_transaction
+            )
+            btn.pack(fill="x", padx=15, pady=10)
 
         ledger_title = ctk.CTkLabel(order_frame, text="Order History Log", font=("Helvetica", 13, "bold"))
         ledger_title.pack(anchor="w", padx=15, pady=(10, 2))
@@ -245,9 +267,8 @@ class FinancialDashboard(ctk.CTkFrame):
         log_entry.pack(fill="x", pady=3, padx=2)
         log_entry.pack_propagate(False)
 
-        side_color = "#107c41" if side == "BUY" else "#a80000"
         side_badge = ctk.CTkLabel(
-            log_entry, text=side, text_color="white", fg_color=side_color,
+            log_entry, text=side, text_color="white", fg_color="#107c41" if side == "BUY" else "#a80000",
             font=("Helvetica", 9, "bold"), width=40, corner_radius=3
         )
         side_badge.pack(side="left", padx=5)
@@ -256,9 +277,8 @@ class FinancialDashboard(ctk.CTkFrame):
         details_label.pack(side="left", padx=5)
 
         delete_btn = ctk.CTkButton(
-            log_entry, text="✕", text_color=("#555555", "#aaaaaa"),
-            fg_color="transparent", hover_color=("#DCDCDC", "#3A3A3A"),
-            width=20, font=("Helvetica", 11, "bold"),
+            log_entry, text="✕", text_color=("#555555", "#aaaaaa"), fg_color="transparent",
+            hover_color=("#DCDCDC", "#3A3A3A"), width=20, font=("Helvetica", 11, "bold"),
             command=log_entry.destroy
         )
         delete_btn.pack(side="right", padx=5)
@@ -267,24 +287,40 @@ class FinancialDashboard(ctk.CTkFrame):
         self.qty_input.delete(0, "end")
         self.price_input.delete(0, "end")
 
-    def _add_news_node(self, sentiment, headline, url):
+    def _add_news_node(self, news):
+        news_content = news.get("content", {})
+        news_id = news.get("id") or news_content.get("id")
+        title = news_content.get('title', 'No Title')
+        url = (news_content.get('clickThroughUrl') or news_content.get('canonicalUrl') or {}).get('url', 'No Link')
+
         node = ctk.CTkFrame(self.news_scroll, height=45, fg_color=("#EAEAEA", "#2B2B2B"))
         node.pack(fill="x", pady=4, padx=2)
         node.pack_propagate(False)
 
-        badge_color = "#107c41" if sentiment == "Bullish" else "#a80000" if sentiment == "Bearish" else "#666666"
+        if news_id:
+            self.active_news_nodes[news_id] = node
+
         badge = ctk.CTkLabel(
-            node, text=sentiment[:4].upper(), fg_color=badge_color,
+            node, text=title[:4].upper(), fg_color="#107c41",
             text_color="white", width=50, font=("Helvetica", 10, "bold"), corner_radius=4
         )
         badge.pack(side="left", padx=8)
 
         link_btn = ctk.CTkButton(
-            node, text=headline, anchor="w", fg_color="transparent",
+            node, text=title, anchor="w", fg_color="transparent",
             text_color=("black", "#A3D8FF"), hover_color=("#DCDCDC", "#3A3A3A"),
             font=("Helvetica", 12, "underline"), command=lambda u=url: webbrowser.open(u)
         )
         link_btn.pack(side="left", fill="both", expand=True)
+
+    def _remove_news_node(self, news_id):
+        if news_id in self.active_news_nodes:
+            self.active_news_nodes[news_id].destroy()
+            del self.active_news_nodes[news_id]
+
+    def clear_all_news(self):
+        for news_id in list(self.active_news_nodes.keys()):
+            self._remove_news_node(news_id)
 
 
 def main():
@@ -292,7 +328,7 @@ def main():
     ctk.set_default_color_theme("blue")
 
     root = ctk.CTk()
-    root.title("Institutional Financial Analytics Dashboard")
+    root.title("Financial Analytics Dashboard")
     root.geometry("1300x750")
     root.resizable(True, True)
 
