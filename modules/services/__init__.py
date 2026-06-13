@@ -1,1 +1,1 @@
-from persistence import *
+from .persistence import *

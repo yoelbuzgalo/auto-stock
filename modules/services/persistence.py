@@ -40,18 +40,23 @@ class JsonFilePersistence(Persistence):
 
     def save(self) -> None:
         """Save current items to the JSON file"""
-        with open(self.filename, "w") as f:
-            json.dump(self._items, f)
+        try:
+            with open(self.filename, "w") as f:
+                json.dump(self._items, f)
+            return True
+        except Exception as e:
+            print(e)
+            return False
 
-    def add_item(self, item: Tuple[str, float]) -> None:
+    def add_item(self, item: Tuple[str, float, float]) -> None:
         self._items.append(item)
         self.save()
 
-    def add_items(self, items: Iterable[Tuple[str, float]]) -> None:
+    def add_items(self, items: Iterable[Tuple[str, float, float]]) -> None:
         self._items.extend(items)
         self.save()
 
-    def load_items(self) -> List[Tuple[str, float]]:
+    def load_items(self) -> List[Tuple[str, float, float]]:
         try:
             with open(self.filename, "r") as f:
                 data = json.load(f)

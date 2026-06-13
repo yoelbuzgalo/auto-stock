@@ -2,9 +2,15 @@ import threading
 import webbrowser
 import customtkinter as ctk
 import matplotlib.pyplot as plt
+import matplotlib.dates as mdates
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 import yfinance as yf
+import re
 
+GREEN = "#107c41"
+RED = "#a80000"
+WHITE = "#D1D1D1"
+PRICE_PATTERN=r"\s+(\d+\.\d+)"
 
 class FinancialDashboard(ctk.CTkFrame):
 
@@ -95,7 +101,7 @@ class FinancialDashboard(ctk.CTkFrame):
     def _on_search_submit(self):
         ticker = self.chart_search_input.get().strip().upper()
         if not ticker:
-            self._update_status_msg("Error: Input query empty", "#ff4d4d")
+            self._update_status_msg("Error: Input query empty", RED)
             return
         self._trigger_chart_update(ticker)
 
@@ -108,11 +114,24 @@ class FinancialDashboard(ctk.CTkFrame):
 
     def _trigger_chart_update(self, ticker):
         self._update_status_msg(f"Fetching {ticker} market matrix asynchronously...", "#3b8ed0")
+        self.ticker_input.delete(0,"end")
+        self.ticker_input.insert(0,ticker)
         threading.Thread(target=self._fetch_and_render_worker, args=(ticker,), daemon=True).start()
 
     def _fetch_and_render_worker(self, ticker):
         try:
+
+            # After retrieving the data, get the most recently available price
+
             stock_data = yf.download(ticker, period="1mo", interval="1d", progress=False)
+            prices = stock_data[("Close",ticker)]
+            data = prices.head(1).to_string()
+            price = re.search(PRICE_PATTERN,data).group(1)
+
+            # Insert it into the order panel for convenience
+            self.price_input.delete(0,"end")
+            self.price_input.insert(0,price)
+            
             vi = yf.Ticker("^VIX").history(period="1d")["Close"].iloc[-1]
             vi = round(vi, 2)
             ticker_obj = yf.Ticker(ticker)
@@ -138,16 +157,15 @@ class FinancialDashboard(ctk.CTkFrame):
         if self.active_canvas_widget:
             self.active_canvas_widget.get_tk_widget().destroy()
 
-        self._update_status_msg(f"Displaying {ticker} performance data cleanly.", "#107c41")
+        self._update_status_msg(f"Displaying {ticker} performance data cleanly.", GREEN)
 
-        # 1. Expand the baseline figure layout proportion slightly
+        # Expand the baseline figure layout proportion slightly
         fig, ax = plt.subplots(figsize=(6, 3.5), facecolor="#2b2b2b")
         ax.set_facecolor("#2b2b2b")
         
         # Draw Close price lines
         ax.plot(data.index, data['Close'], color="#1f538d", linewidth=2)
         
-        import matplotlib.dates as mdates
         
         # Rotate date labels automatically so they don't crash into each other
         fig.autofmt_xdate(bottom=0.2, rotation=30, ha='right')
@@ -157,8 +175,8 @@ class FinancialDashboard(ctk.CTkFrame):
         # Format dates as 'Year-Month-Day'
         ax.xaxis.set_major_formatter(mdates.DateFormatter('%Y-%m-%d'))
 
-        # 3. Styling adjustments
-        ax.set_title(f"{ticker} - Last 30 Days", color="white", fontsize=12, fontweight="bold")
+        # Styling adjustments
+        ax.set_title(f"{ticker} - Last 30 Days", color=WHITE, fontsize=12, fontweight="bold")
         ax.tick_params(colors="white", labelsize=9)
         ax.grid(True, color="#444444", linestyle="--", linewidth=0.5)
         
@@ -201,8 +219,8 @@ class FinancialDashboard(ctk.CTkFrame):
         matrix_container.grid_rowconfigure((0, 1), weight=1, uniform="sub")
 
         sectors = [
-            ("TECH\n+2.4%", "#107c41", 0, 0), ("FIN\n-0.8%", "#a80000", 0, 1), ("HLTH\n+0.1%", "#1b5e20", 0, 2),
-            ("CONS\n-1.4%", "#7f0000", 1, 0), ("ENRG\n+3.1%", "#0b5127", 1, 1), ("UTIL\n0.0%", "#4a4a4a", 1, 2)
+            ("TECH\n+2.4%", GREEN, 0, 0), ("FIN\n-0.8%", RED, 0, 1), ("HLTH\n+0.1%", GREEN, 0, 2),
+            ("CONS\n-1.4%", RED, 1, 0), ("ENRG\n+3.1%", GREEN, 1, 1), ("UTIL\n0.0%", "#4a4a4a", 1, 2)
         ]
         for text, color, r, c in sectors:
             tile = ctk.CTkButton(
@@ -241,24 +259,46 @@ class FinancialDashboard(ctk.CTkFrame):
         self.price_input = ctk.CTkEntry(order_frame, placeholder_text="Price ($)")
         self.price_input.pack(fill="x", padx=15, pady=5)
 
-        for txt in ["Log Order", "Save Orders"]:
-            btn = ctk.CTkButton(
-                order_frame, text=txt, font=("Helvetica", 12, "bold"),
-                fg_color="#1f538d", command=self._log_transaction
-            )
-            btn.pack(fill="x", padx=15, pady=10)
+        # Log orders button
+
+        btn = ctk.CTkButton(
+            order_frame, text="Log Order", font=("Helvetica", 12, "bold"),
+            fg_color="#1f538d", command=self._log_transaction
+        )
+        btn.pack(fill="x", padx=15, pady=10)
+
+        # Save orders
+
+        btn = ctk.CTkButton(
+            order_frame, text="Save Orders", font=("Helvetica", 12, "bold"),
+            fg_color="#1f538d", command=self._save_transactions
+        )
+        btn.pack(fill="x", padx=15, pady=10)
 
         ledger_title = ctk.CTkLabel(order_frame, text="Order History Log", font=("Helvetica", 13, "bold"))
         ledger_title.pack(anchor="w", padx=15, pady=(10, 2))
 
-        self.ledger_scroll = ctk.CTkScrollableFrame(order_frame, fg_color=("#D1D1D1", "#1E1E1E"))
+        self.ledger_scroll = ctk.CTkScrollableFrame(order_frame, fg_color=(WHITE, "#1E1E1E"))
         self.ledger_scroll.pack(fill="both", expand=True, padx=15, pady=(0, 15))
+
+    def _save_transactions(self):
+        self._update_status_msg("Saving orders to JSON file...",WHITE)
+        result = self.persistent_storage.save()
+        if result:
+            self._update_status_msg("Orders saved!",GREEN)
+        else:
+            self._update_status_msg("Error saving orders..",RED)
+
+    def _delete_transaction(self,log_entry:ctk.CTkFrame):
+        log_entry.destroy()
 
     def _log_transaction(self):
         side = self.order_type.get()
         ticker = self.ticker_input.get().strip().upper()
         qty = self.qty_input.get().strip()
         price = self.price_input.get().strip()
+
+        self.persistent_storage.add_item((ticker,qty,price))
 
         if not ticker or not qty or not price:
             return
@@ -268,7 +308,7 @@ class FinancialDashboard(ctk.CTkFrame):
         log_entry.pack_propagate(False)
 
         side_badge = ctk.CTkLabel(
-            log_entry, text=side, text_color="white", fg_color="#107c41" if side == "BUY" else "#a80000",
+            log_entry, text=side, text_color="white", fg_color=GREEN if side == "BUY" else "#a80000",
             font=("Helvetica", 9, "bold"), width=40, corner_radius=3
         )
         side_badge.pack(side="left", padx=5)
@@ -279,7 +319,7 @@ class FinancialDashboard(ctk.CTkFrame):
         delete_btn = ctk.CTkButton(
             log_entry, text="✕", text_color=("#555555", "#aaaaaa"), fg_color="transparent",
             hover_color=("#DCDCDC", "#3A3A3A"), width=20, font=("Helvetica", 11, "bold"),
-            command=log_entry.destroy
+            command=lambda:self._delete_transaction(log_entry)
         )
         delete_btn.pack(side="right", padx=5)
 
@@ -301,7 +341,7 @@ class FinancialDashboard(ctk.CTkFrame):
             self.active_news_nodes[news_id] = node
 
         badge = ctk.CTkLabel(
-            node, text=title[:4].upper(), fg_color="#107c41",
+            node, text=title[:4].upper(), fg_color=GREEN,
             text_color="white", width=50, font=("Helvetica", 10, "bold"), corner_radius=4
         )
         badge.pack(side="left", padx=8)
@@ -322,8 +362,9 @@ class FinancialDashboard(ctk.CTkFrame):
         for news_id in list(self.active_news_nodes.keys()):
             self._remove_news_node(news_id)
 
+        
 
-def main():
+def run_gui_app(storage):
     ctk.set_appearance_mode("Dark")
     ctk.set_default_color_theme("blue")
 
@@ -332,8 +373,11 @@ def main():
     root.geometry("1300x750")
     root.resizable(True, True)
 
-    FinancialDashboard(root)
+    FinancialDashboard(root,storage=storage)
     root.mainloop()
+
+def main():
+    run_gui_app()
 
 
 if __name__ == "__main__":
