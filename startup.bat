@@ -4,6 +4,6 @@ title Auto-Stock
 cd /d %~dp0
 call venv\Scripts\activate
 
-python src\app.py
+python -m src.app
 
 pause

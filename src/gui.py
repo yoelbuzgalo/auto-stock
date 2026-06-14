@@ -44,7 +44,6 @@ class FinancialDashboard(ctk.CTkFrame):
     def _init_dashboard_panels(self):
         self._build_chart_panel()
         self._build_fear_panel()
-        self._build_heatmap_panel()
         self._build_sentiment_panel()
         self._build_order_panel()
 
@@ -113,17 +112,16 @@ class FinancialDashboard(ctk.CTkFrame):
         self.meter_label.configure(text=value)
 
     def _trigger_chart_update(self, ticker):
-        self._update_status_msg(f"Fetching {ticker} market matrix asynchronously...", "#3b8ed0")
+        self._update_status_msg(f"Fetching market data for {ticker}...", "#3b8ed0")
         self.ticker_input.delete(0,"end")
         self.ticker_input.insert(0,ticker)
-        threading.Thread(target=self._fetch_and_render_worker, args=(ticker,), daemon=True).start()
+        stock_data = yf.download(ticker, period="1mo", interval="1d", progress=False)
+        threading.Thread(target=self._fetch_and_render_worker, args=(ticker,stock_data), daemon=True).start()
 
-    def _fetch_and_render_worker(self, ticker):
+    def _fetch_and_render_worker(self, ticker, stock_data):
         try:
-
             # After retrieving the data, get the most recently available price
 
-            stock_data = yf.download(ticker, period="1mo", interval="1d", progress=False)
             prices = stock_data[("Close",ticker)]
             data = prices.head(1).to_string()
             price = re.search(PRICE_PATTERN,data).group(1)
@@ -143,7 +141,7 @@ class FinancialDashboard(ctk.CTkFrame):
             # Consolidated singular execution block pushed to main event loop
             self.master.after(0, lambda: self._apply_downloaded_payload(ticker, stock_data, vi, articles))
         except Exception as e:
-            self.master.after(0, lambda: self._update_status_msg(f"Error lookup failed: {str(e)}", "#ff4d4d"))
+            self.master.after(0, lambda: self._update_status_msg(f"Error lookup failed: ", "#ff4d4d"))
 
     def _apply_downloaded_payload(self, ticker, stock_data, vix_val, articles):
         """Unified UI updates executed purely inside the safe main process thread."""
@@ -203,31 +201,8 @@ class FinancialDashboard(ctk.CTkFrame):
         self.meter_bar.set(0.32)
         self.meter_bar.pack(fill="x", padx=30, pady=20)
 
-        self.meter_label = ctk.CTkLabel(self.fear_frame, text="0.0", font=("Helvetica", 24, "bold"), text_color="#ff4d4d")
+        self.meter_label = ctk.CTkLabel(self.fear_frame, text="0.0", font=("Helvetica", 24, "bold"), text_color=GREEN)
         self.meter_label.pack()
-
-    def _build_heatmap_panel(self):
-        self.heatmap_frame = ctk.CTkFrame(self)
-        self.heatmap_frame.grid(row=1, column=0, padx=10, pady=10, sticky="nsew")
-
-        heatmap_title = ctk.CTkLabel(self.heatmap_frame, text="Sector Performance", font=("Helvetica", 14, "bold"))
-        heatmap_title.pack(anchor="w", padx=15, pady=(10, 5))
-
-        matrix_container = ctk.CTkFrame(self.heatmap_frame, fg_color="transparent")
-        matrix_container.pack(fill="both", expand=True, padx=15, pady=10)
-        matrix_container.grid_columnconfigure((0, 1, 2), weight=1, uniform="sub")
-        matrix_container.grid_rowconfigure((0, 1), weight=1, uniform="sub")
-
-        sectors = [
-            ("TECH\n+2.4%", GREEN, 0, 0), ("FIN\n-0.8%", RED, 0, 1), ("HLTH\n+0.1%", GREEN, 0, 2),
-            ("CONS\n-1.4%", RED, 1, 0), ("ENRG\n+3.1%", GREEN, 1, 1), ("UTIL\n0.0%", "#4a4a4a", 1, 2)
-        ]
-        for text, color, r, c in sectors:
-            tile = ctk.CTkButton(
-                matrix_container, text=text, fg_color=color, hover_color=color,
-                font=("Helvetica", 12, "bold"), corner_radius=6
-            )
-            tile.grid(row=r, column=c, padx=4, pady=4, sticky="nsew")
 
     def _build_sentiment_panel(self):
         self.sentiment_frame = ctk.CTkFrame(self)
