@@ -7,79 +7,74 @@ from .process import DashboardWorker
 from .layout import DashboardLayout
 from .bases import BaseDashboard
 from .chart import DashboardChart
-from src.constants import RED,GREEN, WHITE, BLACK
+from .fear import FearMeter
+from src.constants import RED, GREEN, WHITE, BLACK
 
 class FinancialDashboard(BaseDashboard):
+
+    __slots__ = [
+        "layout",  
+        "worker",
+        "chart",
+        "fear_meter",
+        "persistent_storage",
+        "active_news_nodes",
+        "active_canvas_widget",
+        "current_fig",
+        "_resize_timer",
+        "master",
+        "fear_frame",       
+        "sentiment_frame",  
+        "meter_bar",        
+        "meter_label",      
+        "news_scroll",      
+        "order_type",       
+        "ticker_input",     
+        "qty_input",        
+        "price_input",      
+        "ledger_scroll"     
+    ]
 
     def __init__(self, master, storage=None):
         super().__init__(master, fg_color="transparent")
         self.master = master
-        self.pack(fill="both", expand=True, padx=20, pady=20)
+        self.persistent_storage = storage
 
-        if storage is not None:
-            self.persistent_storage = storage
-
-        # State management parameters
         self.active_news_nodes = dict()
         self.active_canvas_widget = None
         self.current_fig = None
-        self._resize_timer = None  # Crucial for debouncing resize lag
+        self._resize_timer = None
+
+        # Build local modular frame components
+        self._build_sentiment_panel()
+        self._build_order_panel()
 
         self.layout = DashboardLayout(self)
+        self.pack(fill="both", padx=0, pady=0)
+        # Mount subframes locally to layout
         self.worker = DashboardWorker(self)
-        self.chart = DashboardChart(self)
-
-        # Initial asynchronous application population
-        self._trigger_chart_update("AAPL")
-
-    def _debounce_canvas_resize(self, event):
-        """Cancels past sizing queues to ensure drawing executes only when drag stops."""
-        if self._resize_timer is not None:
-            self.master.after_cancel(self._resize_timer)
+        self.chart = DashboardChart(self,self.worker)
+        self.fear_meter = FearMeter(self)
         
-        # Wait 150ms before committing to redrawing core components
-        self._resize_timer = self.master.after(150, lambda: self._execute_deferred_resize(event.width, event.height))
 
-    def _execute_deferred_resize(self, w, h):
-        """Runs single layout calculations cleanly without lagging out layout managers."""
+        self.worker.update("AAPL")
+
+    def execute_deferred_resize(self, w, h):
         if self.current_fig and self.active_canvas_widget and w > 10 and h > 10:
             dpi = self.current_fig.get_dpi()
             self.current_fig.set_size_inches(w / dpi, h / dpi)
             self.active_canvas_widget.draw_idle()
 
-    def _on_search_submit(self):
-        ticker = self.chart_search_input.get().strip().upper()
-        if not ticker:
-            self._update_status_msg("Error: Input query empty", RED)
-            return
+    def _debounce_canvas_resize(self, event):
+        if self._resize_timer is not None:
+            self.master.after_cancel(self._resize_timer)
+        self._resize_timer = self.master.after(150, lambda: self._execute_deferred_resize(event.width, event.height))
+
+    def search(self,ticker):
         self.worker.update(ticker)
 
-    def _update_fear_meter(self, value):
-        self.meter_bar.set(round(value, 2) / 100)
-        text = "Greed"
-        color = RED
-        if value <= 50:
-            text = "Fear"
-            color = GREEN
-            
-        self.meter_label.configure(text=text,text_color=color)
-
     def _draw_matplotlib_canvas(self, ticker, data):
-        self.chart.update(ticker,data)
-
-    def _build_fear_panel(self):
-        self.fear_frame = ctk.CTkFrame(self)
-        self.fear_frame.grid(row=0, column=1, padx=10, pady=10, sticky="nsew")
-
-        fear_title = ctk.CTkLabel(self.fear_frame, text="Fear & Greed Index", font=("Helvetica", 16, "bold"))
-        fear_title.pack(pady=(15, 5))
-
-        self.meter_bar = ctk.CTkProgressBar(self.fear_frame, orientation="horizontal", height=25)
-        self.meter_bar.set(0.32)
-        self.meter_bar.pack(fill="x", padx=30, pady=20)
-
-        self.meter_label = ctk.CTkLabel(self.fear_frame, text="0.0", font=("Helvetica", 24, "bold"), text_color=GREEN)
-        self.meter_label.pack()
+        self.chart.update(ticker, data)
 
     def _build_sentiment_panel(self):
         self.sentiment_frame = ctk.CTkFrame(self)
@@ -111,15 +106,11 @@ class FinancialDashboard(BaseDashboard):
         self.price_input = ctk.CTkEntry(order_frame, placeholder_text="Price ($)")
         self.price_input.pack(fill="x", padx=15, pady=5)
 
-        # Log orders button
-
         btn = ctk.CTkButton(
             order_frame, text="Log Order", font=("Helvetica", 12, "bold"),
             fg_color="#1f538d", command=self._log_transaction
         )
         btn.pack(fill="x", padx=15, pady=10)
-
-        # Save orders
 
         btn = ctk.CTkButton(
             order_frame, text="Save Orders", font=("Helvetica", 12, "bold"),
@@ -134,14 +125,16 @@ class FinancialDashboard(BaseDashboard):
         self.ledger_scroll.pack(fill="both", expand=True, padx=15, pady=(0, 15))
 
     def _save_transactions(self):
-        self._update_status_msg("Saving orders to JSON file...",WHITE)
+        self._update_status_msg("Saving orders to JSON file...", WHITE)
+        if not self.persistent_storage:
+            return
         result = self.persistent_storage.save()
         if result:
-            self._update_status_msg("Orders saved!",GREEN)
+            self._update_status_msg("Orders saved!", GREEN)
         else:
-            self._update_status_msg("Error saving orders..",RED)
+            self._update_status_msg("Error saving orders..", RED)
 
-    def _delete_transaction(self,log_entry:ctk.CTkFrame):
+    def _delete_transaction(self, log_entry: ctk.CTkFrame):
         log_entry.destroy()
 
     def _log_transaction(self):
@@ -150,10 +143,11 @@ class FinancialDashboard(BaseDashboard):
         qty = self.qty_input.get().strip()
         price = self.price_input.get().strip()
 
-        self.persistent_storage.add_item((ticker,qty,price))
-
         if not ticker or not qty or not price:
             return
+
+        if self.persistent_storage:
+            self.persistent_storage.add_item((ticker, qty, price))
 
         log_entry = ctk.CTkFrame(self.ledger_scroll, height=35, fg_color=(WHITE, BLACK))
         log_entry.pack(fill="x", pady=3, padx=2)
@@ -171,7 +165,7 @@ class FinancialDashboard(BaseDashboard):
         delete_btn = ctk.CTkButton(
             log_entry, text="✕", text_color=("#555555", "#aaaaaa"), fg_color="transparent",
             hover_color=("#DCDCDC", "#3A3A3A"), width=20, font=("Helvetica", 11, "bold"),
-            command=lambda:self._delete_transaction(log_entry)
+            command=lambda: self._delete_transaction(log_entry)
         )
         delete_btn.pack(side="right", padx=5)
 
@@ -214,17 +208,33 @@ class FinancialDashboard(BaseDashboard):
         for news_id in list(self.active_news_nodes.keys()):
             self._remove_news_node(news_id)
 
+
     """
     
     Getters
-
     
     """
 
     def get_chart(self):
         return self.chart
+    
+    def get_worker(self):
+        return self.worker
+    
+    def get_meter(self):
+        return self.meter_bar
 
-def run_gui_app(storage):
+    """
+    
+    Setters
+
+    
+    """
+
+    def set_chart(self, chart):
+        self.chart = chart
+
+def run_gui_app(storage=None):
     ctk.set_appearance_mode("Dark")
     ctk.set_default_color_theme("blue")
 
@@ -233,12 +243,11 @@ def run_gui_app(storage):
     root.geometry("1300x750")
     root.resizable(True, True)
 
-    FinancialDashboard(root,storage=storage)
+    FinancialDashboard(root, storage=storage)
     root.mainloop()
 
 def main():
     run_gui_app()
-
 
 if __name__ == "__main__":
     main()

@@ -4,6 +4,31 @@ import customtkinter as ctk
 
 class BaseDashboard(ctk.CTkFrame,ABC):
 
+    __slots__ = [
+        "layout",  # Match property name
+        "worker",
+        "chart",
+        "persistent_storage",
+        "active_news_nodes",
+        "active_canvas_widget",
+        "current_fig",
+        "_resize_timer",
+        "master",
+        "fear_frame",
+        "sentiment_frame",
+        "meter_bar",
+        "meter_label",
+        "news_scroll",
+        "order_type",
+        "ticker_input",
+        "qty_input",
+        "price_input",
+        "ledger_scroll"
+    ]
+
+    def __init__(self,master,fg_color):
+        super().__init__(master=master,fg_color=fg_color)
+
     # Build Chart Panel Components
     def _trigger_chart_update(self, ticker):
         pass
@@ -40,6 +65,9 @@ class BaseDashboard(ctk.CTkFrame,ABC):
     def save_transactions(self):
         pass
 
+    def search(self):
+        pass
+
     # Add news nodes to list
     def add_news_node(self, news):
         pass
@@ -54,4 +82,11 @@ class BaseDashboard(ctk.CTkFrame,ABC):
 
     # Retrieves the associated chart portion
     def get_chart(self):
+        pass
+
+    # Retrieves the fear meter
+    def get_meter(self):
+        pass
+
+    def set_chart(self):
         pass
