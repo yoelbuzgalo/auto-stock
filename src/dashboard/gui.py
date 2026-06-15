@@ -1,18 +1,15 @@
-import threading
 import webbrowser
 import customtkinter as ctk
 import matplotlib.pyplot as plt
 import matplotlib.dates as mdates
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
-import yfinance as yf
-import re
+from .process import DashboardWorker
+from .layout import DashboardLayout
+from .bases import BaseDashboard
+from .chart import DashboardChart
+from src.constants import RED,GREEN, WHITE, BLACK
 
-GREEN = "#107c41"
-RED = "#a80000"
-WHITE = "#D1D1D1"
-PRICE_PATTERN=r"\s+(\d+\.\d+)"
-
-class FinancialDashboard(ctk.CTkFrame):
+class FinancialDashboard(BaseDashboard):
 
     def __init__(self, master, storage=None):
         super().__init__(master, fg_color="transparent")
@@ -28,59 +25,12 @@ class FinancialDashboard(ctk.CTkFrame):
         self.current_fig = None
         self._resize_timer = None  # Crucial for debouncing resize lag
 
-        self._configure_grid_layout()
-        self._init_dashboard_panels()
+        self.layout = DashboardLayout(self)
+        self.worker = DashboardWorker(self)
+        self.chart = DashboardChart(self)
 
         # Initial asynchronous application population
         self._trigger_chart_update("AAPL")
-
-    def _configure_grid_layout(self):
-        self.grid_columnconfigure(0, weight=3, uniform="main_cols")
-        self.grid_columnconfigure(1, weight=2, uniform="main_cols")
-        self.grid_columnconfigure(2, weight=2, uniform="main_cols")
-        self.grid_rowconfigure(0, weight=1, uniform="rows")
-        self.grid_rowconfigure(1, weight=1, uniform="rows")
-
-    def _init_dashboard_panels(self):
-        self._build_chart_panel()
-        self._build_fear_panel()
-        self._build_sentiment_panel()
-        self._build_order_panel()
-
-    def _build_chart_panel(self):
-        self.chart_frame = ctk.CTkFrame(self)
-        self.chart_frame.grid(row=0, column=0, padx=10, pady=10, sticky="nsew")
-        
-        self.chart_frame.grid_columnconfigure(0, weight=1)
-        self.chart_frame.grid_rowconfigure(2, weight=1)
-
-        # Engine Control Sub-panel
-        search_container = ctk.CTkFrame(self.chart_frame, fg_color="transparent")
-        search_container.grid(row=0, column=0, padx=15, pady=(15, 5), sticky="ew")
-
-        self.chart_search_input = ctk.CTkEntry(
-            search_container, placeholder_text="Search Ticker (e.g., NVDA, TSLA)"
-        )
-        self.chart_search_input.pack(side="left", fill="x", expand=True, padx=(0, 10))
-        self.chart_search_input.bind("<Return>", lambda e: self._on_search_submit())
-
-        search_btn = ctk.CTkButton(search_container, text="Search", width=80, command=self._on_search_submit)
-        search_btn.pack(side="right")
-
-        # Status Messenger Line
-        self.status_lbl = ctk.CTkLabel(
-            self.chart_frame, text="System Ready", font=("Helvetica", 11, "italic"), text_color="#aaaaaa"
-        )
-        self.status_lbl.grid(row=1, column=0, padx=18, sticky="w")
-
-        # Dynamic Content Viewport Area
-        self.view_canvas_container = ctk.CTkFrame(self.chart_frame, fg_color="transparent")
-        self.view_canvas_container.grid(row=2, column=0, padx=10, pady=10, sticky="nsew")
-        self.view_canvas_container.grid_rowconfigure(0, weight=1)
-        self.view_canvas_container.grid_columnconfigure(0, weight=1)
-        
-        # Debounced Event Binding - Smooths resizing down completely
-        self.view_canvas_container.bind("<Configure>", self._debounce_canvas_resize)
 
     def _debounce_canvas_resize(self, event):
         """Cancels past sizing queues to ensure drawing executes only when drag stops."""
@@ -102,93 +52,20 @@ class FinancialDashboard(ctk.CTkFrame):
         if not ticker:
             self._update_status_msg("Error: Input query empty", RED)
             return
-        self._trigger_chart_update(ticker)
-
-    def _update_status_msg(self, text, color="#aaaaaa"):
-        self.status_lbl.configure(text=text, text_color=color)
+        self.worker.update(ticker)
 
     def _update_fear_meter(self, value):
         self.meter_bar.set(round(value, 2) / 100)
-        self.meter_label.configure(text=value)
-
-    def _trigger_chart_update(self, ticker):
-        self._update_status_msg(f"Fetching market data for {ticker}...", "#3b8ed0")
-        self.ticker_input.delete(0,"end")
-        self.ticker_input.insert(0,ticker)
-        stock_data = yf.download(ticker, period="1mo", interval="1d", progress=False)
-        threading.Thread(target=self._fetch_and_render_worker, args=(ticker,stock_data), daemon=True).start()
-
-    def _fetch_and_render_worker(self, ticker, stock_data):
-        try:
-            # After retrieving the data, get the most recently available price
-
-            prices = stock_data[("Close",ticker)]
-            data = prices.head(1).to_string()
-            price = re.search(PRICE_PATTERN,data).group(1)
-
-            # Insert it into the order panel for convenience
-            self.price_input.delete(0,"end")
-            self.price_input.insert(0,price)
+        text = "Greed"
+        color = RED
+        if value <= 50:
+            text = "Fear"
+            color = GREEN
             
-            vi = yf.Ticker("^VIX").history(period="1d")["Close"].iloc[-1]
-            vi = round(vi, 2)
-            ticker_obj = yf.Ticker(ticker)
-            articles = ticker_obj.news[:5]
-            
-            if stock_data.empty or len(stock_data) < 2:
-                raise ValueError("Invalid symbol matrices returned")
-
-            # Consolidated singular execution block pushed to main event loop
-            self.master.after(0, lambda: self._apply_downloaded_payload(ticker, stock_data, vi, articles))
-        except Exception as e:
-            self.master.after(0, lambda: self._update_status_msg(f"Error lookup failed: ", "#ff4d4d"))
-
-    def _apply_downloaded_payload(self, ticker, stock_data, vix_val, articles):
-        """Unified UI updates executed purely inside the safe main process thread."""
-        self._draw_matplotlib_canvas(ticker, stock_data)
-        self._update_fear_meter(vix_val)
-        self.clear_all_news()
-        for news in articles:
-            self._add_news_node(news)
+        self.meter_label.configure(text=text,text_color=color)
 
     def _draw_matplotlib_canvas(self, ticker, data):
-        if self.active_canvas_widget:
-            self.active_canvas_widget.get_tk_widget().destroy()
-
-        self._update_status_msg(f"Displaying {ticker} performance data cleanly.", GREEN)
-
-        # Expand the baseline figure layout proportion slightly
-        fig, ax = plt.subplots(figsize=(6, 3.5), facecolor="#2b2b2b")
-        ax.set_facecolor("#2b2b2b")
-        
-        # Draw Close price lines
-        ax.plot(data.index, data['Close'], color="#1f538d", linewidth=2)
-        
-        
-        # Rotate date labels automatically so they don't crash into each other
-        fig.autofmt_xdate(bottom=0.2, rotation=30, ha='right')
-        
-        # Only show a tick mark every 5 days instead of all 30 days
-        ax.xaxis.set_major_locator(mdates.DayLocator(interval=5))
-        # Format dates as 'Year-Month-Day'
-        ax.xaxis.set_major_formatter(mdates.DateFormatter('%Y-%m-%d'))
-
-        # Styling adjustments
-        ax.set_title(f"{ticker} - Last 30 Days", color=WHITE, fontsize=12, fontweight="bold")
-        ax.tick_params(colors="white", labelsize=9)
-        ax.grid(True, color="#444444", linestyle="--", linewidth=0.5)
-        
-        # Using tight_layout safely keeps labels inside the image borders
-        fig.tight_layout()
-
-        # Mount everything to your Tkinter grid viewport
-        self.current_fig = fig
-        canvas = FigureCanvasTkAgg(fig, master=self.view_canvas_container)
-        self.active_canvas_widget = canvas
-        
-        canvas.get_tk_widget().grid(row=0, column=0, sticky="nsew")
-        canvas.draw()
-        plt.close(fig)
+        self.chart.update(ticker,data)
 
     def _build_fear_panel(self):
         self.fear_frame = ctk.CTkFrame(self)
@@ -278,7 +155,7 @@ class FinancialDashboard(ctk.CTkFrame):
         if not ticker or not qty or not price:
             return
 
-        log_entry = ctk.CTkFrame(self.ledger_scroll, height=35, fg_color=("#EAEAEA", "#2B2B2B"))
+        log_entry = ctk.CTkFrame(self.ledger_scroll, height=35, fg_color=(WHITE, BLACK))
         log_entry.pack(fill="x", pady=3, padx=2)
         log_entry.pack_propagate(False)
 
@@ -308,7 +185,7 @@ class FinancialDashboard(ctk.CTkFrame):
         title = news_content.get('title', 'No Title')
         url = (news_content.get('clickThroughUrl') or news_content.get('canonicalUrl') or {}).get('url', 'No Link')
 
-        node = ctk.CTkFrame(self.news_scroll, height=45, fg_color=("#EAEAEA", "#2B2B2B"))
+        node = ctk.CTkFrame(self.news_scroll, height=45, fg_color=(WHITE, BLACK))
         node.pack(fill="x", pady=4, padx=2)
         node.pack_propagate(False)
 
@@ -337,7 +214,15 @@ class FinancialDashboard(ctk.CTkFrame):
         for news_id in list(self.active_news_nodes.keys()):
             self._remove_news_node(news_id)
 
-        
+    """
+    
+    Getters
+
+    
+    """
+
+    def get_chart(self):
+        return self.chart
 
 def run_gui_app(storage):
     ctk.set_appearance_mode("Dark")

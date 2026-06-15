@@ -1,4 +1,4 @@
-from .gui import run_gui_app
+from .dashboard.gui import run_gui_app
 from modules import JsonFilePersistence
 from pathlib import Path
 
