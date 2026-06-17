@@ -3,9 +3,8 @@ from modules import JsonFilePersistence
 from pathlib import Path
 
 def main():
-    path = "data/orders.json"
-    storage = JsonFilePersistence(path)  # will persist to orders.json
-    run_gui_app(storage=storage)
+    
+    run_gui_app()
 
 if __name__ == "__main__":
     main()

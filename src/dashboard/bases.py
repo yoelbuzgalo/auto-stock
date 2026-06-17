@@ -1,92 +1,93 @@
-from abc import ABC
+from abc import ABC, abstractmethod
+import queue as q
 import customtkinter as ctk
 
+class BasePanel(ABC):
+    """
+    Abstract Base Class for all auxiliary dashboard panels.
+    Enforces a standardized UI initialization lifecycle and provides
+    consistent geometric constraints across the application.
+    """
+    
+    def __init__(self, master, width: int = 320, height: int = 500, **kwargs):
+        """
+        Initializes base configuration parameters for CustomTkinter frames.
 
-class BaseDashboard(ctk.CTkFrame,ABC):
+        Args:
+            master (tk.Tk / ctk.CTk / ctk.CTkFrame): The parent container.
+            width (int): Fixed runtime layout width configuration. Defaults to 320.
+            height (int): Fixed runtime layout height configuration. Defaults to 500.
+            **kwargs: Arbitrary keyword arguments passed to the ctk.CTkFrame superclass.
+        """
+        super().__init__(master, width=width, height=height, **kwargs)
 
-    __slots__ = [
-        "layout",  # Match property name
-        "worker",
-        "chart",
-        "persistent_storage",
-        "active_news_nodes",
-        "active_canvas_widget",
-        "current_fig",
-        "_resize_timer",
-        "master",
-        "fear_frame",
-        "sentiment_frame",
-        "meter_bar",
-        "meter_label",
-        "news_scroll",
-        "order_type",
-        "ticker_input",
-        "qty_input",
-        "price_input",
-        "ledger_scroll"
-    ]
-
-    def __init__(self,master,fg_color):
-        super().__init__(master=master,fg_color=fg_color)
-
-    # Build Chart Panel Components
-    def _trigger_chart_update(self, ticker):
-        pass
-    def _build_chart_panel(self):
-        pass
-    def _on_search_submit(self):
+    @abstractmethod
+    def _build_ui(self):
+        """
+        Abstract lifecycle hook. Child classes must override this method 
+        to assemble, bind, and pack internal frame widget configurations.
+        """
         pass
 
-    # Update Chart Status
-    def update_status_msg(self, text, color="#aaaaaa"):
-        pass
-    def updates_fear_meter(self, value):
-        pass
-    def draw_matplotlib_canvas(self, ticker, data):
+class BaseDashboard(ctk.CTkFrame, ABC):
+    __slots__ = ()
+
+    def __init__(self, master, fg_color):
+        super().__init__(master=master, fg_color=fg_color)
+        self.gui_queue = q.Queue()
+
+    def _safe_get_queue(self):
+        return getattr(self, "gui_queue", None)
+
+    def _safe_get_chart(self):
+        if hasattr(self, "layout"):
+            return getattr(self.layout, "chart", None)
+        return None
+
+    @property
+    @abstractmethod
+    def chart(self):
         pass
 
-    # Build Fear Index Panels
-    def _build_fear_panel(self):
+    @chart.setter
+    @abstractmethod
+    def chart(self, chart):
         pass
 
-    # Build Sentiment News Panels
-    def _build_sentiment_panel(self):
+    @property
+    @abstractmethod
+    def queue(self):
         pass
 
-    # Build Order Execute Panels
-    def _build_order_panel(self):
+
+class BaseLayout(ABC):
+
+    def __init__(self, root: BaseDashboard, worker: BaseWorker):
+        self.root = root
+        self.worker = worker
+
+    def _configure_grid_layout(self):
         pass
 
-    # Log transactions
-    def log_transaction(self):
-        pass
-    def delete_transaction(self,log_entry: ctk.CTkFrame):
-        pass
-    def save_transactions(self):
+    def _init_dashboard_panels(self, worker):
         pass
 
-    def search(self):
+    def get_chart(self):
+        return None
+
+    def update_status_msg(self, text, color=""):
         pass
 
-    # Add news nodes to list
-    def add_news_node(self, news):
-        pass
-
-    # Remove single items from the list
-    def remove_news_node(self, news_id):
-        pass
-
-    # Clear all items in a list
     def clear_all_news(self):
         pass
 
-    # Retrieves the associated chart portion
-    def get_chart(self):
+class BaseThread(ABC):
+    pass
+
+class BaseWorker(ABC):
+    
+    def get_price_input(self):
         pass
 
-    # Retrieves the fear meter
-    def get_meter(self):
-        pass
-
-    def set_chart(self):
+    def retrieve_yfinance(self,ticker):
         pass

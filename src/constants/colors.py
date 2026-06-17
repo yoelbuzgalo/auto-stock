@@ -1,4 +1,0 @@
-GREEN = "#107c41"
-RED = "#a80000"
-WHITE = "#D1D1D1"
-BLACK = "#2B2B2B"

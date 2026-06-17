@@ -3,8 +3,8 @@ from __future__ import annotations
 from datetime import datetime
 from typing import List, Any
 
-from data_sources.base_provider import MarketDataProvider
-from data_sources.market_models import Quote, Candle
+from .base_provider import MarketDataProvider
+from .market_models import Quote, Candle
 
 
 class PolygonDataSource(MarketDataProvider):

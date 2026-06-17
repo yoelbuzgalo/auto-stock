@@ -4,7 +4,7 @@ from abc import ABC, abstractmethod
 from datetime import datetime
 from typing import List, Any
 
-from data_sources.market_models import Quote, Candle
+from .market_models import Quote, Candle
 
 
 class MarketDataProvider(ABC):

@@ -12,14 +12,18 @@ class Quote:
     timestamp: datetime
     source: str
 
-
 @dataclass(slots=True)
-class Candle:
-    symbol: str
-    timestamp: datetime
+class Ohlcv:
     open: float
     high: float
     low: float
     close: float
     volume: int
+
+
+@dataclass(slots=True)
+class Candle(Ohlcv):
+    symbol: str
+    timestamp: datetime
     source: str
+
