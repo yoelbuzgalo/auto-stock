@@ -238,7 +238,7 @@ class FinancialDashboard(BaseDashboard):
 
         link_btn = ctk.CTkButton(
             node, text=title[:NEWS_CHAR_LIMIT], anchor="w", fg_color="transparent",
-            text_color=(DARK_GRAY), hover_color=(LIGHT_GRAY, DARK_GRAY),
+            text_color=(LIGHT_GRAY), hover_color=DEEP_BLUE,
             font=(FONT_FAMILY, FONT_SIZE_BODY, "underline"), command=lambda u=url: webbrowser.open(u)
         )
         link_btn.pack(side="left", fill="both", expand=True)

@@ -176,8 +176,8 @@ class DashboardChart(ctk.CTkFrame):
         chart_w = int(w * float(CHART_WIDTH_RATIO))
         chart_h = int(h * float(CHART_HEIGHT_RATIO))
 
-        chart_w = min(chart_w, int(CHART_MAX_WIDTH))
-        chart_h = min(chart_h, int(CHART_MAX_HEIGHT))
+        chart_w = max(chart_w, int(CHART_MAX_WIDTH))
+        chart_h = max(chart_h, int(CHART_MAX_HEIGHT))
 
         if chart_w < int(CHART_MIN_WIDTH) or chart_h < int(CHART_MIN_HEIGHT):
             return
